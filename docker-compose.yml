@@ -29,6 +29,8 @@ services:
       - EXECUTIONS_DATA_SAVE_ON_SUCCESS=none
       - EXECUTIONS_DATA_PRUNE=true
       - EXECUTIONS_DATA_MAX_AGE=168
+      - N8N_SECURE_COOKIE=false
+      - WEBHOOK_URL=<coloque o seu ip aqui>
     depends_on:
       - db
       - ollama # Garante que o Ollama suba antes do n8n
