@@ -5,6 +5,7 @@ services:
     image: postgres:16-alpine
     container_name: n8n_postgres
     restart: always
+    command: postgres -c max_connections=200 -c shared_buffers=256MB
     environment:
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
@@ -12,6 +13,15 @@ services:
     volumes:
       - ./postgres_data:/var/lib/postgresql/data
 
+  # 1. NOVO: O gerenciador de filas
+  redis:
+    image: redis:7-alpine
+    container_name: n8n_redis
+    restart: always
+    volumes:
+      - ./redis_data:/data
+
+  # 2. O n8n Principal (Agora ele só cuida da interface visual e recebe webhooks)
   n8n:
     image: n8nio/n8n:latest
     container_name: n8n_app
@@ -31,12 +41,40 @@ services:
       - EXECUTIONS_DATA_PRUNE=true
       - EXECUTIONS_DATA_MAX_AGE=168
       - N8N_SECURE_COOKIE=false
+      # Habilitando o Queue Mode
+      - EXECUTIONS_MODE=queue
+      - QUEUE_BULL_REDIS_HOST=redis
+      - QUEUE_BULL_REDIS_PORT=6379
     depends_on:
       - db
-      - ollama # Garante que o Ollama suba antes do n8n
+      - redis
+
+  # 3. NOVO: O Operário (Este é quem realmente executa os fluxos)
+  n8n-worker:
+    image: n8nio/n8n:latest
+    container_name: n8n_worker
+    restart: always
+    command: worker --concurrency=2 # Protege sua placa de vídeo limitando tarefas simultâneas
+    environment:
+      # O Worker PRECISA das mesmas variáveis de banco, redis e chaves
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_DATABASE=${POSTGRES_DB}
+      - DB_POSTGRESDB_HOST=db
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_USER=${POSTGRES_USER}
+      - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY} # Crucial ser idêntica
+      - EXECUTIONS_MODE=queue
+      - QUEUE_BULL_REDIS_HOST=redis
+      - QUEUE_BULL_REDIS_PORT=6379
+    depends_on:
+      - db
+      - redis
+      - n8n
+      - ollama
 
   ollama:
-    build: . # O ponto indica para o Docker procurar o Dockerfile na mesma pasta
+    build: .
     container_name: ollama_ai
     restart: always
     ports:
