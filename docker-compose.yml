@@ -5,7 +5,6 @@ services:
     image: postgres:16-alpine
     container_name: n8n_postgres
     restart: always
-    command: postgres -c max_connections=200 -c shared_buffers=256MB
     environment:
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
@@ -13,7 +12,6 @@ services:
     volumes:
       - ./postgres_data:/var/lib/postgresql/data
 
-  # 1. NOVO: O gerenciador de filas
   redis:
     image: redis:7-alpine
     container_name: n8n_redis
@@ -21,13 +19,14 @@ services:
     volumes:
       - ./redis_data:/data
 
-  # 2. O n8n Principal (Agora ele só cuida da interface visual e recebe webhooks)
   n8n:
-    image: n8nio/n8n:latest
+    build:
+      context: .
+      dockerfile: n8n.Dockerfile # <--- Usa o novo Dockerfile
     container_name: n8n_app
     restart: always
     ports:
-      - '5678:5678'
+      - "5678:5678"
     environment:
       - DB_TYPE=postgresdb
       - DB_POSTGRESDB_DATABASE=${POSTGRES_DB}
@@ -36,45 +35,48 @@ services:
       - DB_POSTGRESDB_USER=${POSTGRES_USER}
       - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
       - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
-      - WEBHOOK_URL=${WEBHOOK_URL}
-      - EXECUTIONS_DATA_SAVE_ON_SUCCESS=none
-      - EXECUTIONS_DATA_PRUNE=true
-      - EXECUTIONS_DATA_MAX_AGE=168
+      - N8N_PROTOCOL=http
+      - N8N_HOST=${LOCAL_HOST}
+      - N8N_PORT=5678
+      - WEBHOOK_URL=http://${LOCAL_HOST}:5678/
       - N8N_SECURE_COOKIE=false
-      # Habilitando o Queue Mode
       - EXECUTIONS_MODE=queue
       - QUEUE_BULL_REDIS_HOST=redis
       - QUEUE_BULL_REDIS_PORT=6379
+    volumes:
+      - ./n8n_data:/home/node/.n8n # <--- PERSISTÊNCIA DOS DADOS
     depends_on:
       - db
       - redis
 
-  # 3. NOVO: O Operário (Este é quem realmente executa os fluxos)
   n8n-worker:
-    image: n8nio/n8n:latest
+    build:
+      context: .
+      dockerfile: n8n.Dockerfile # <--- Worker também precisa do plugin!
     container_name: n8n_worker
     restart: always
-    command: worker --concurrency=2 # Protege sua placa de vídeo limitando tarefas simultâneas
+    command: worker
     environment:
-      # O Worker PRECISA das mesmas variáveis de banco, redis e chaves
       - DB_TYPE=postgresdb
-      - DB_POSTGRESDB_DATABASE=${POSTGRES_DB}
       - DB_POSTGRESDB_HOST=db
       - DB_POSTGRESDB_PORT=5432
       - DB_POSTGRESDB_USER=${POSTGRES_USER}
       - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
-      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY} # Crucial ser idêntica
+      - DB_POSTGRESDB_DATABASE=${POSTGRES_DB}
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
       - EXECUTIONS_MODE=queue
       - QUEUE_BULL_REDIS_HOST=redis
       - QUEUE_BULL_REDIS_PORT=6379
+      - N8N_SECURE_COOKIE=false
+    volumes:
+      - ./n8n_data:/home/node/.n8n # <--- Compartilha os mesmos dados do app
     depends_on:
-      - db
-      - redis
       - n8n
-      - ollama
 
   ollama:
-    build: .
+    build:
+      context: .
+      dockerfile: ollama.Dockerfile # Supondo que o seu Dockerfile do Ollama tenha esse nome
     container_name: ollama_ai
     restart: always
     ports:
