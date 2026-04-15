@@ -22,11 +22,11 @@ services:
   n8n:
     build:
       context: .
-      dockerfile: n8n.Dockerfile # <--- Usa o novo Dockerfile
+      dockerfile: n8n.Dockerfile
     container_name: n8n_app
     restart: always
     ports:
-      - "5678:5678"
+      - '5678:5678'
     environment:
       - DB_TYPE=postgresdb
       - DB_POSTGRESDB_DATABASE=${POSTGRES_DB}
@@ -35,16 +35,10 @@ services:
       - DB_POSTGRESDB_USER=${POSTGRES_USER}
       - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
       - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
-      - N8N_PROTOCOL=http
-      - N8N_HOST=${LOCAL_HOST}
-      - N8N_PORT=5678
-      - WEBHOOK_URL=http://${LOCAL_HOST}:5678/
-      - N8N_SECURE_COOKIE=false
       - EXECUTIONS_MODE=queue
       - QUEUE_BULL_REDIS_HOST=redis
       - QUEUE_BULL_REDIS_PORT=6379
-    volumes:
-      - ./n8n_data:/home/node/.n8n # <--- PERSISTÊNCIA DOS DADOS
+      - N8N_SECURE_COOKIE=false
     depends_on:
       - db
       - redis
@@ -52,7 +46,7 @@ services:
   n8n-worker:
     build:
       context: .
-      dockerfile: n8n.Dockerfile # <--- Worker também precisa do plugin!
+      dockerfile: n8n.Dockerfile
     container_name: n8n_worker
     restart: always
     command: worker
@@ -68,15 +62,13 @@ services:
       - QUEUE_BULL_REDIS_HOST=redis
       - QUEUE_BULL_REDIS_PORT=6379
       - N8N_SECURE_COOKIE=false
-    volumes:
-      - ./n8n_data:/home/node/.n8n # <--- Compartilha os mesmos dados do app
     depends_on:
       - n8n
 
   ollama:
     build:
       context: .
-      dockerfile: ollama.Dockerfile # Supondo que o seu Dockerfile do Ollama tenha esse nome
+      dockerfile: ollama.Dockerfile
     container_name: ollama_ai
     restart: always
     ports:
