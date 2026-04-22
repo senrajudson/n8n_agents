@@ -1,0 +1,7 @@
+    build:
+      context: .
+      dockerfile: n8n.Dockerfile
+
+    build:
+      context: .
+      dockerfile: ollama.Dockerfile

@@ -5,6 +5,7 @@ services:
     image: postgres:16-alpine
     container_name: n8n_postgres
     restart: always
+    command: postgres -c max_connections=200 -c shared_buffers=256MB
     environment:
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
@@ -20,13 +21,15 @@ services:
       - ./redis_data:/data
 
   n8n:
+    image: n8nio/n8n:latest
     build:
       context: .
       dockerfile: n8n.Dockerfile
     container_name: n8n_app
     restart: always
+    # ESSENCIAL: Você precisa dessa porta para acessar a interface localmente
     ports:
-      - '5678:5678'
+      - "5678:5678" 
     environment:
       - DB_TYPE=postgresdb
       - DB_POSTGRESDB_DATABASE=${POSTGRES_DB}
@@ -35,22 +38,23 @@ services:
       - DB_POSTGRESDB_USER=${POSTGRES_USER}
       - DB_POSTGRESDB_PASSWORD=${POSTGRES_PASSWORD}
       - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+      - N8N_PROTOCOL=http
+      - N8N_HOST=${LOCAL_HOST}
+      - N8N_PORT=5678
+      - WEBHOOK_URL=http://${LOCAL_HOST}:5678/
+      - N8N_SECURE_COOKIE=false
       - EXECUTIONS_MODE=queue
       - QUEUE_BULL_REDIS_HOST=redis
       - QUEUE_BULL_REDIS_PORT=6379
-      - N8N_SECURE_COOKIE=false
-      - N8N_COMMUNITY_PACKAGES_ENABLED=true
     depends_on:
       - db
       - redis
 
   n8n-worker:
-    build:
-      context: .
-      dockerfile: n8n.Dockerfile
+    image: n8nio/n8n:latest
     container_name: n8n_worker
     restart: always
-    command: worker
+    command: worker --concurrency=2
     environment:
       - DB_TYPE=postgresdb
       - DB_POSTGRESDB_HOST=db
@@ -63,11 +67,11 @@ services:
       - QUEUE_BULL_REDIS_HOST=redis
       - QUEUE_BULL_REDIS_PORT=6379
       - N8N_SECURE_COOKIE=false
-      - N8N_COMMUNITY_PACKAGES_ENABLED=true
     depends_on:
       - n8n
 
   ollama:
+    image: ollama/ollama:latest
     build:
       context: .
       dockerfile: ollama.Dockerfile
