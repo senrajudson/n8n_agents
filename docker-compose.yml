@@ -70,6 +70,29 @@ services:
     depends_on:
       - n8n
 
+  backup_db:
+      image: postgres:16-alpine # Usando a mesma versão do DB do n8n
+      container_name: n8n_backup_db
+      restart: always
+      depends_on:
+        - db # O nome do seu serviço do Postgres no compose do n8n
+      environment:
+        TZ: America/Sao_Paulo
+        # Usamos as variáveis para puxar a senha/usuário do seu arquivo .env
+        PGPASSWORD: ${POSTGRES_PASSWORD}
+        PGHOST: db 
+        PGUSER: ${POSTGRES_USER}
+        PGDATABASE: ${POSTGRES_DB}
+        OUTDIR: /backup
+        BACKUP_INTERVAL_SECONDS: "86400" # Ex: 86400 = 1 vez por dia (24h)
+        KEEP_LAST: "7" # Mantém apenas os últimos 7 dias para não lotar o disco
+      volumes:
+        # Onde o backup será salvo no seu computador host
+        - ./backup/postgres:/backup
+        # Onde o script vai ficar
+        - ./backup/scripts:/scripts:ro
+      command: [ "/bin/sh", "/scripts/backup.sh" ]
+
   ollama:
     image: ollama/ollama:latest
     build:
