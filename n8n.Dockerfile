@@ -8,3 +8,5 @@ RUN npm install -g n8n-nodes-gcp-pubsub
 
 # Voltamos para o usuário padrão do n8n por segurança
 USER node
+
+# cat ./backup/postgres/n8n_2026-04-23_09-15-49.sql | docker exec -i n8n_postgres psql -U n8n -d n8n
