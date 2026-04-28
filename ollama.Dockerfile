@@ -1,13 +1,16 @@
 # Usa a imagem oficial do Ollama como base
 FROM ollama/ollama:latest
 
-# Inicia o servidor em background, aguarda 5 segundos para ele inicializar 
-# e então faz o download do modelo Llama 3 para dentro da imagem.
+# Configura o modelo: Pull -> Create Alias -> Remove Original -> Cleanup
 RUN ollama serve & sleep 5 && \
-    ollama pull llama3.1:8b
-    # ollama pull llama3.2:1b && \
-    # ollama pull llama3.2:3b && \
-    # ollama pull qwen3.5:0.8b && \
-    # ollama pull qwen3.5:2b && \
-    # ollama pull qwen3.5:4b && \
-    # ollama pull deepseek-r1:8b
+    # 1. Baixa o modelo original do Hugging Face
+    # ollama pull hf.co/Ian-Liu/Qwen2-VL-2B-OCR-Q4_K_M-GGUF && \
+    # # 2. Cria o alias amigável
+    # echo "FROM hf.co/Ian-Liu/Qwen2-VL-2B-OCR-Q4_K_M-GGUF" > Modelfile && \
+    # ollama create qwen2vl-jackchew-2b -f Modelfile && \
+    # # 3. LIMPEZA: Remove o nome gigante original e o arquivo temporário
+    # ollama rm hf.co/Ian-Liu/Qwen2-VL-2B-OCR-Q4_K_M-GGUF && \
+    # ollama rm qwen-ocr && \
+    # rm Modelfile && \
+    # 4. Baixa os outros modelos de texto necessários
+    ollama pull qwen3.5:4b
