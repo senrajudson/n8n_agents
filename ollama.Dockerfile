@@ -13,4 +13,5 @@ RUN ollama serve & sleep 5 && \
     # ollama rm qwen-ocr && \
     # rm Modelfile && \
     # 4. Baixa os outros modelos de texto necessários
-    ollama pull qwen3.5:4b
+    # ollama pull qwen3.5:4b
+    ollama pull gemma4:e4b

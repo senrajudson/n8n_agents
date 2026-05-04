@@ -20,6 +20,16 @@ services:
     volumes:
       - ./redis_data:/data
 
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: qdrant_db
+    restart: always
+    ports:
+      - '6333:6333'
+      - '6334:6334'
+    volumes:
+      - ./qdrant_storage:/qdrant/storage
+
   n8n:
     image: n8nio/n8n:latest
     build:
@@ -27,9 +37,8 @@ services:
       dockerfile: n8n.Dockerfile
     container_name: n8n_app
     restart: always
-    # ESSENCIAL: Você precisa dessa porta para acessar a interface localmente
     ports:
-      - "5678:5678" 
+      - '5678:5678'
     environment:
       - DB_TYPE=postgresdb
       - DB_POSTGRESDB_DATABASE=${POSTGRES_DB}
@@ -46,9 +55,11 @@ services:
       - EXECUTIONS_MODE=queue
       - QUEUE_BULL_REDIS_HOST=redis
       - QUEUE_BULL_REDIS_PORT=6379
+      - QDRANT_URL=http://qdrant:6333
     depends_on:
       - db
       - redis
+      - qdrant
 
   n8n-worker:
     image: n8nio/n8n:latest
@@ -67,31 +78,30 @@ services:
       - QUEUE_BULL_REDIS_HOST=redis
       - QUEUE_BULL_REDIS_PORT=6379
       - N8N_SECURE_COOKIE=false
+      - QDRANT_URL=http://qdrant:6333
     depends_on:
       - n8n
+      - qdrant
 
   backup_db:
-      image: postgres:16-alpine # Usando a mesma versão do DB do n8n
-      container_name: n8n_backup_db
-      restart: always
-      depends_on:
-        - db # O nome do seu serviço do Postgres no compose do n8n
-      environment:
-        TZ: America/Sao_Paulo
-        # Usamos as variáveis para puxar a senha/usuário do seu arquivo .env
-        PGPASSWORD: ${POSTGRES_PASSWORD}
-        PGHOST: db 
-        PGUSER: ${POSTGRES_USER}
-        PGDATABASE: ${POSTGRES_DB}
-        OUTDIR: /backup
-        BACKUP_INTERVAL_SECONDS: "86400" # Ex: 86400 = 1 vez por dia (24h)
-        KEEP_LAST: "7" # Mantém apenas os últimos 7 dias para não lotar o disco
-      volumes:
-        # Onde o backup será salvo no seu computador host
-        - ./backup/postgres:/backup
-        # Onde o script vai ficar
-        - ./backup/scripts:/scripts:ro
-      command: [ "/bin/sh", "/scripts/backup.sh" ]
+    image: postgres:16-alpine
+    container_name: n8n_backup_db
+    restart: always
+    depends_on:
+      - db
+    environment:
+      TZ: America/Sao_Paulo
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGHOST: db
+      PGUSER: ${POSTGRES_USER}
+      PGDATABASE: ${POSTGRES_DB}
+      OUTDIR: /backup
+      BACKUP_INTERVAL_SECONDS: '86400'
+      KEEP_LAST: '7'
+    volumes:
+      - ./backup/postgres:/backup
+      - ./backup/scripts:/scripts:ro
+    command: ['/bin/sh', '/scripts/backup.sh']
 
   ollama:
     image: ollama/ollama:latest
