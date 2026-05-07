@@ -103,7 +103,20 @@ services:
       - ./backup/scripts:/scripts:ro
     command: ['/bin/sh', '/scripts/backup.sh']
 
+  math_tool:
+    build:
+      context: ./calc
+      dockerfile: mathtool.Dockerfile
+    container_name: math_tool
+    restart: always
+    expose:
+      - '8001'
+    ports:
+      - '8001:8001'
+
   ollama:
+    environment:
+      - OLLAMA_KEEP_ALIVE=-1
     image: ollama/ollama:latest
     build:
       context: .

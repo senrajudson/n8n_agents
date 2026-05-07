@@ -1,0 +1,26 @@
+[project]
+name = "n8n-agents"
+version = "0.1.0"
+description = ""
+authors = [
+    {name = "senrajudson",email = "judsonnascimento.filho@gmail.com"}
+]
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "pandas (>=3.0.2,<4.0.0)",
+    "openpyxl (>=3.1.5,<4.0.0)",
+    "xlrd (>=2.0.2,<3.0.0)",
+    "qdrant-client[fastembed] (>=1.14.2)",
+    "sympy (>=1.14.0,<2.0.0)",
+    "uvicorn (>=0.46.0,<0.47.0)",
+    "fastapi (>=0.136.1,<0.137.0)",
+    "pydantic (>=2.13.4,<3.0.0)"
+]
+
+[tool.poetry]
+package-mode = false
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
