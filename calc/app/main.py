@@ -1,21 +1,17 @@
 from fastapi import FastAPI
 from pydantic import BaseModel, Field
 from typing import Any, Dict, List, Optional, Union
+from datetime import datetime, timezone
 import statistics
 import math
-import re
+import ast
+import operator
 
-import sympy as sp
-from sympy.parsing.sympy_parser import (
-    parse_expr,
-    standard_transformations,
-    implicit_multiplication_application,
-)
 
 app = FastAPI(
     title="Math Tool",
-    description="Ferramenta local para estatística, derivadas e integrais.",
-    version="1.1.0"
+    description="Ferramenta local para estatística, cálculo aritmético e cálculo temporal.",
+    version="2.0.0"
 )
 
 
@@ -27,59 +23,28 @@ class StatsRequest(BaseModel):
     )
 
 
+class CalculateRequest(BaseModel):
+    expression: str = Field(..., description="Expressão aritmética simples.")
+
+
+class TimePoint(BaseModel):
+    timestamp: Union[str, datetime]
+    value: float
+
+
 class CalculusRequest(BaseModel):
     operation: str = Field(
         ...,
-        description="Operação: derivative, partial_derivative, integral ou double_integral."
+        description="Operação temporal: integral ou derivative."
     )
-    expression: str = Field(..., description="Expressão matemática.")
-    variables: List[str] = Field(..., description="Variáveis usadas na operação.")
-    order: Optional[int] = Field(default=1, description="Ordem da derivada comum.")
-    orders: Optional[List[int]] = Field(
-        default=None,
-        description="Ordens para derivadas parciais. Exemplo: [1, 2]."
+    time_unit: Optional[str] = Field(
+        default="second",
+        description="Unidade de tempo: second, minute ou hour."
     )
-    bounds: Optional[Dict[str, List[Union[str, float, int]]]] = Field(
-        default=None,
-        description="Limites de integração. Exemplo: {'x': [0, 1]}."
+    points: List[TimePoint] = Field(
+        ...,
+        description="Lista de pontos com timestamp e value."
     )
-    simplify_result: bool = Field(default=True)
-    numeric_approx: bool = Field(default=True)
-
-
-ALLOWED_FUNCTIONS = {
-    "sin": sp.sin,
-    "cos": sp.cos,
-    "tan": sp.tan,
-    "asin": sp.asin,
-    "acos": sp.acos,
-    "atan": sp.atan,
-    "sinh": sp.sinh,
-    "cosh": sp.cosh,
-    "tanh": sp.tanh,
-    "exp": sp.exp,
-    "log": sp.log,
-    "ln": sp.log,
-    "sqrt": sp.sqrt,
-    "Abs": sp.Abs,
-    "abs": sp.Abs,
-}
-
-ALLOWED_CONSTANTS = {
-    "pi": sp.pi,
-    "E": sp.E,
-    "e": sp.E,
-}
-
-SAFE_GLOBALS = {
-    "__builtins__": {},
-    "Integer": sp.Integer,
-    "Float": sp.Float,
-    "Rational": sp.Rational,
-    "Symbol": sp.Symbol,
-}
-
-TRANSFORMATIONS = standard_transformations + (implicit_multiplication_application,)
 
 
 def validate_values(values: List[float]) -> List[float]:
@@ -166,213 +131,296 @@ def calculate_stats(values: List[float], operations: Optional[List[str]]) -> Dic
     return result
 
 
-def text(value: Any) -> str:
-    if value is None:
-        return ""
-
-    return str(value).strip()
-
-
-def validate_variable_names(variables: List[str]) -> List[str]:
-    if not variables:
-        raise ValueError("Informe pelo menos uma variável.")
-
-    clean_variables = []
-
-    for variable in variables:
-        variable = text(variable)
-
-        if not re.match(r"^[A-Za-z][A-Za-z0-9_]*$", variable):
-            raise ValueError(f"Nome de variável inválido: {variable}")
-
-        if variable in ALLOWED_FUNCTIONS or variable in ALLOWED_CONSTANTS:
-            raise ValueError(f"Nome de variável reservado: {variable}")
-
-        clean_variables.append(variable)
-
-    return clean_variables
+ALLOWED_OPERATORS = {
+    ast.Add: operator.add,
+    ast.Sub: operator.sub,
+    ast.Mult: operator.mul,
+    ast.Div: operator.truediv,
+    ast.Pow: operator.pow,
+    ast.Mod: operator.mod,
+    ast.USub: operator.neg,
+    ast.UAdd: operator.pos,
+}
 
 
-def build_local_dict(variables: List[str]) -> Dict[str, Any]:
-    local_dict = {}
+ALLOWED_FUNCTIONS = {
+    "sqrt": math.sqrt,
+    "abs": abs,
+    "round": round,
+    "min": min,
+    "max": max,
+    "sin": math.sin,
+    "cos": math.cos,
+    "tan": math.tan,
+    "log": math.log,
+    "ln": math.log,
+    "exp": math.exp,
+}
 
-    for variable in variables:
-        local_dict[variable] = sp.Symbol(variable, real=True)
 
-    local_dict.update(ALLOWED_FUNCTIONS)
-    local_dict.update(ALLOWED_CONSTANTS)
-
-    return local_dict
+ALLOWED_NAMES = {
+    "pi": math.pi,
+    "e": math.e,
+}
 
 
-def parse_math_expression(expression: Any, variables: List[str]) -> Any:
-    expression_text = text(expression).replace("^", "**")
+def safe_eval_expression(expression: str) -> float:
+    expression = str(expression or "").strip().replace("^", "**")
 
-    if not expression_text:
+    if not expression:
         raise ValueError("Expressão vazia.")
 
-    if len(expression_text) > 500:
+    if len(expression) > 500:
         raise ValueError("Expressão muito longa. Limite: 500 caracteres.")
 
-    blocked_tokens = ["__", "import", "exec", "eval", "lambda", "open", "os.", "sys."]
-    lowered = expression_text.lower()
+    tree = ast.parse(expression, mode="eval")
 
-    for token in blocked_tokens:
-        if token in lowered:
-            raise ValueError("Expressão contém token bloqueado.")
+    def eval_node(node):
+        if isinstance(node, ast.Expression):
+            return eval_node(node.body)
 
-    if not re.match(r"^[0-9A-Za-z_+\-*/().,\s]+$", expression_text):
-        raise ValueError("Expressão contém caracteres não permitidos.")
+        if isinstance(node, ast.Constant):
+            if isinstance(node.value, (int, float)):
+                return float(node.value)
+            raise ValueError("A expressão contém valor inválido.")
 
-    local_dict = build_local_dict(variables)
-    allowed_names = set(local_dict.keys())
+        if isinstance(node, ast.Num):
+            return float(node.n)
 
-    names = re.findall(r"[A-Za-z_][A-Za-z0-9_]*", expression_text)
+        if isinstance(node, ast.BinOp):
+            op_type = type(node.op)
 
-    invalid_names = [name for name in names if name not in allowed_names]
+            if op_type not in ALLOWED_OPERATORS:
+                raise ValueError("Operador não permitido.")
 
-    if invalid_names:
-        raise ValueError(f"Nomes não permitidos na expressão: {invalid_names}")
+            left = eval_node(node.left)
+            right = eval_node(node.right)
 
-    return parse_expr(
-        expression_text,
-        local_dict=local_dict,
-        global_dict=SAFE_GLOBALS,
-        transformations=TRANSFORMATIONS,
-        evaluate=True
-    )
+            return ALLOWED_OPERATORS[op_type](left, right)
+
+        if isinstance(node, ast.UnaryOp):
+            op_type = type(node.op)
+
+            if op_type not in ALLOWED_OPERATORS:
+                raise ValueError("Operador unário não permitido.")
+
+            return ALLOWED_OPERATORS[op_type](eval_node(node.operand))
+
+        if isinstance(node, ast.Name):
+            if node.id in ALLOWED_NAMES:
+                return ALLOWED_NAMES[node.id]
+
+            raise ValueError(f"Nome não permitido na expressão: {node.id}")
+
+        if isinstance(node, ast.Call):
+            if not isinstance(node.func, ast.Name):
+                raise ValueError("Função inválida.")
+
+            function_name = node.func.id
+
+            if function_name not in ALLOWED_FUNCTIONS:
+                raise ValueError(f"Função não permitida: {function_name}")
+
+            if node.keywords:
+                raise ValueError("Argumentos nomeados não são permitidos.")
+
+            args = [eval_node(arg) for arg in node.args]
+
+            return ALLOWED_FUNCTIONS[function_name](*args)
+
+        raise ValueError("Expressão contém elemento não permitido.")
+
+    result = eval_node(tree)
+
+    if not isinstance(result, (int, float)) or not math.isfinite(result):
+        raise ValueError("Resultado inválido, infinito ou NaN.")
+
+    return float(result)
 
 
-def parse_bound(value: Any, variables: List[str]) -> Any:
-    return parse_math_expression(value, variables)
+def parse_timestamp(timestamp: Union[str, datetime]) -> datetime:
+    if isinstance(timestamp, datetime):
+        dt = timestamp
+    else:
+        text = str(timestamp).strip()
+
+        if text.endswith("Z"):
+            text = text[:-1] + "+00:00"
+
+        dt = datetime.fromisoformat(text)
+
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+
+    return dt.astimezone(timezone.utc)
 
 
-def has_unevaluated_calculus(result: Any) -> bool:
-    return result.has(sp.Integral) or result.has(sp.Derivative)
+def get_time_unit_seconds(time_unit: Optional[str]) -> float:
+    unit = str(time_unit or "second").strip().lower()
+
+    aliases = {
+        "s": "second",
+        "sec": "second",
+        "second": "second",
+        "seconds": "second",
+        "m": "minute",
+        "min": "minute",
+        "minute": "minute",
+        "minutes": "minute",
+        "h": "hour",
+        "hr": "hour",
+        "hour": "hour",
+        "hours": "hour",
+    }
+
+    unit = aliases.get(unit, unit)
+
+    if unit == "second":
+        return 1.0
+
+    if unit == "minute":
+        return 60.0
+
+    if unit == "hour":
+        return 3600.0
+
+    raise ValueError("time_unit inválido. Use second, minute ou hour.")
 
 
-def format_result(result: Any, simplify_result: bool, numeric_approx: bool) -> Dict[str, Any]:
-    if simplify_result:
-        result = sp.simplify(result)
+def validate_points(points: List[TimePoint]) -> List[Dict[str, Any]]:
+    if not points:
+        raise ValueError("A lista de pontos não pode estar vazia.")
 
-    approximation = None
+    if len(points) > 100000:
+        raise ValueError("A lista de pontos é muito grande. Limite: 100000 pontos.")
 
-    if numeric_approx and not result.free_symbols and not has_unevaluated_calculus(result):
-        try:
-            approximation = float(sp.N(result))
-        except Exception:
-            approximation = None
+    clean_points = []
+
+    for point in points:
+        value = float(point.value)
+
+        if not math.isfinite(value):
+            raise ValueError("A lista contém valor inválido, infinito ou NaN.")
+
+        clean_points.append({
+            "timestamp": parse_timestamp(point.timestamp),
+            "value": value
+        })
+
+    clean_points.sort(key=lambda item: item["timestamp"])
+
+    if len(clean_points) < 2:
+        raise ValueError("São necessários pelo menos 2 pontos para integral ou derivada temporal.")
+
+    return clean_points
+
+
+def calculate_timeseries_integral(points: List[TimePoint], time_unit: Optional[str]) -> Dict[str, Any]:
+    clean_points = validate_points(points)
+    unit_seconds = get_time_unit_seconds(time_unit)
+
+    integral = 0.0
+    valid_intervals = 0
+
+    for current_point, next_point in zip(clean_points, clean_points[1:]):
+        dt_seconds = (next_point["timestamp"] - current_point["timestamp"]).total_seconds()
+
+        if dt_seconds <= 0:
+            continue
+
+        dt_unit = dt_seconds / unit_seconds
+        average_value = (current_point["value"] + next_point["value"]) / 2
+
+        integral += average_value * dt_unit
+        valid_intervals += 1
+
+    if valid_intervals == 0:
+        raise ValueError("Não há intervalos de tempo válidos para calcular a integral.")
+
+    duration_seconds = (clean_points[-1]["timestamp"] - clean_points[0]["timestamp"]).total_seconds()
 
     return {
-        "result": str(result),
-        "latex": sp.latex(result),
-        "numeric_approx": approximation,
-        "has_free_symbols": len(result.free_symbols) > 0,
-        "has_unevaluated_calculus": has_unevaluated_calculus(result)
+        "operation": "integral",
+        "method": "trapezoidal",
+        "time_unit": time_unit,
+        "input_count": len(clean_points),
+        "interval_count": valid_intervals,
+        "start_timestamp": clean_points[0]["timestamp"].isoformat(),
+        "end_timestamp": clean_points[-1]["timestamp"].isoformat(),
+        "duration_seconds": duration_seconds,
+        "duration_in_time_unit": duration_seconds / unit_seconds,
+        "integral": integral
+    }
+
+
+def calculate_timeseries_derivative(points: List[TimePoint], time_unit: Optional[str]) -> Dict[str, Any]:
+    clean_points = validate_points(points)
+    unit_seconds = get_time_unit_seconds(time_unit)
+
+    derivatives = []
+
+    for current_point, next_point in zip(clean_points, clean_points[1:]):
+        dt_seconds = (next_point["timestamp"] - current_point["timestamp"]).total_seconds()
+
+        if dt_seconds <= 0:
+            continue
+
+        dt_unit = dt_seconds / unit_seconds
+        derivative = (next_point["value"] - current_point["value"]) / dt_unit
+
+        derivatives.append(derivative)
+
+    if not derivatives:
+        raise ValueError("Não há intervalos de tempo válidos para calcular a derivada.")
+
+    total_duration_seconds = (clean_points[-1]["timestamp"] - clean_points[0]["timestamp"]).total_seconds()
+
+    if total_duration_seconds <= 0:
+        raise ValueError("Duração total inválida para calcular derivada.")
+
+    total_duration_unit = total_duration_seconds / unit_seconds
+    total_change = clean_points[-1]["value"] - clean_points[0]["value"]
+    average_derivative = total_change / total_duration_unit
+
+    return {
+        "operation": "derivative",
+        "method": "finite_difference",
+        "time_unit": time_unit,
+        "input_count": len(clean_points),
+        "interval_count": len(derivatives),
+        "start_timestamp": clean_points[0]["timestamp"].isoformat(),
+        "end_timestamp": clean_points[-1]["timestamp"].isoformat(),
+        "start_value": clean_points[0]["value"],
+        "end_value": clean_points[-1]["value"],
+        "value_change": total_change,
+        "duration_seconds": total_duration_seconds,
+        "duration_in_time_unit": total_duration_unit,
+        "average_derivative": average_derivative,
+        "min_derivative": min(derivatives),
+        "max_derivative": max(derivatives),
+        "first_interval_derivative": derivatives[0],
+        "last_interval_derivative": derivatives[-1]
     }
 
 
 def calculate_calculus(request: CalculusRequest) -> Dict[str, Any]:
-    operation = text(request.operation).lower()
-    variables = validate_variable_names(request.variables)
-    expression = parse_math_expression(request.expression, variables)
-
-    symbols = build_local_dict(variables)
-
-    if operation == "derivative":
-        variable = variables[0]
-        order = request.order or 1
-
-        if order < 1 or order > 10:
-            raise ValueError("A ordem da derivada deve estar entre 1 e 10.")
-
-        result = sp.diff(expression, symbols[variable], order)
-
-        formatted = format_result(result, request.simplify_result, request.numeric_approx)
-        formatted["operation"] = operation
-        formatted["variable"] = variable
-        formatted["order"] = order
-        return formatted
-
-    if operation == "partial_derivative":
-        if request.orders is None:
-            orders = [1 for _ in variables]
-        else:
-            orders = request.orders
-
-        if len(orders) != len(variables):
-            raise ValueError("A quantidade de ordens deve ser igual à quantidade de variáveis.")
-
-        result = expression
-
-        for variable, order in zip(variables, orders):
-            if order < 1 or order > 10:
-                raise ValueError("Cada ordem de derivada deve estar entre 1 e 10.")
-
-            result = sp.diff(result, symbols[variable], order)
-
-        formatted = format_result(result, request.simplify_result, request.numeric_approx)
-        formatted["operation"] = operation
-        formatted["variables"] = variables
-        formatted["orders"] = orders
-        return formatted
+    operation = str(request.operation or "").strip().lower()
 
     if operation == "integral":
-        variable = variables[0]
-        bounds = request.bounds or {}
+        return calculate_timeseries_integral(request.points, request.time_unit)
 
-        if variable in bounds:
-            if len(bounds[variable]) != 2:
-                raise ValueError("O limite da integral precisa ter início e fim.")
+    if operation == "derivative":
+        return calculate_timeseries_derivative(request.points, request.time_unit)
 
-            lower = parse_bound(bounds[variable][0], variables)
-            upper = parse_bound(bounds[variable][1], variables)
-
-            result = sp.integrate(expression, (symbols[variable], lower, upper))
-        else:
-            result = sp.integrate(expression, symbols[variable])
-
-        formatted = format_result(result, request.simplify_result, request.numeric_approx)
-        formatted["operation"] = operation
-        formatted["variable"] = variable
-        formatted["bounds"] = bounds
-        return formatted
-
-    if operation == "double_integral":
-        if len(variables) != 2:
-            raise ValueError("Para integral dupla, informe exatamente duas variáveis.")
-
-        bounds = request.bounds or {}
-        integration_args = []
-
-        for variable in variables:
-            if variable in bounds:
-                if len(bounds[variable]) != 2:
-                    raise ValueError(f"O limite da variável {variable} precisa ter início e fim.")
-
-                lower = parse_bound(bounds[variable][0], variables)
-                upper = parse_bound(bounds[variable][1], variables)
-
-                integration_args.append((symbols[variable], lower, upper))
-            else:
-                integration_args.append(symbols[variable])
-
-        result = sp.integrate(expression, *integration_args)
-
-        formatted = format_result(result, request.simplify_result, request.numeric_approx)
-        formatted["operation"] = operation
-        formatted["variables"] = variables
-        formatted["bounds"] = bounds
-        return formatted
-
-    raise ValueError("Operação inválida. Use derivative, partial_derivative, integral ou double_integral.")
+    raise ValueError("Operação inválida para cálculo temporal. Use integral ou derivative.")
 
 
 @app.get("/health")
 def health():
     return {
         "ok": True,
-        "service": "math_tool"
+        "service": "math_tool",
+        "version": "2.0.0"
     }
 
 
@@ -395,6 +443,26 @@ def stats(request: StatsRequest):
         }
 
 
+@app.post("/calculate")
+def calculate(request: CalculateRequest):
+    try:
+        result = safe_eval_expression(request.expression)
+
+        return {
+            "ok": True,
+            "expression": request.expression,
+            "result": {
+                "calculate": result
+            }
+        }
+
+    except Exception as error:
+        return {
+            "ok": False,
+            "error": str(error)
+        }
+
+
 @app.post("/calculus")
 def calculus(request: CalculusRequest):
     try:
@@ -402,14 +470,9 @@ def calculus(request: CalculusRequest):
 
         return {
             "ok": True,
-            "input": {
-                "operation": request.operation,
-                "expression": request.expression,
-                "variables": request.variables,
-                "order": request.order,
-                "orders": request.orders,
-                "bounds": request.bounds
-            },
+            "input_count": len(request.points),
+            "operation": request.operation,
+            "time_unit": request.time_unit,
             "result": result
         }
 
